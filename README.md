@@ -4,6 +4,12 @@
 
 おすすめサイズと容量はサイズ1920(長辺が1920)でサイズ指定が100kb、これならまぁスマホ画面ならOKかなというレベルになるはずです。avifenc.exeの仕様で強制的に100kb以下とはならず、だいたい100kb付近となるように調整されるので、ファイルによっては200kbになったり90kbになったりします。日常写真がメインだと、だいたい平均して150kbぐらいになる感じ。
 
+**注意点**
+
+Google PhotosのPC用一括転送ツールつまりGoogle DriveのSyncツールですが、avifを画像ファイルとして認識しません(2026/2/15時点)　そのため、**必ずWeb版のGoogle Photos（Googleフォト）にドラッグアンドドロップしてのアップロードが必要です。**これならavifをそのまま認識します。
+
+加えて、アップロード時にStorage Saver（日本語だと　保存容量の節約）を選んでは**ダメです**。せっかくAVIFにまでして画質チューンした圧縮版を、さらに圧縮しようとしたりして逆に容量が増えたりします。画質が悪化することも。なので、必ずアップロード時は「Original Quality」（日本語だと　元の画質）でアップロードするようにしてください。
+
 
 ✨ 特徴
 圧倒的な圧縮率: AVIFフォーマットを採用。JPEG比で最大90%以上のファイルサイズ削減を目指しつつ、見た目の美しさを維持します。
@@ -35,4 +41,5 @@ pyinstaller --noconsole --onefile --collect-all tkinterdnd2 --collect-all pillow
 
 avifenc (libavif): BSD 2-Clause License
 ExifTool (by Phil Harvey): Perl Artistic / GPL
+
 
