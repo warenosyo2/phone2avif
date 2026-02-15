@@ -34,7 +34,5 @@ pyinstaller --noconsole --onefile --collect-all tkinterdnd2 --collect-all pillow
 内部で使用している外部ツール:
 
 avifenc (libavif): BSD 2-Clause License
-
 ExifTool (by Phil Harvey): Perl Artistic / GPL
 
-詳細は同梱の LICENSE_TOOLS.txt を参照してください。
