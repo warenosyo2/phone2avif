@@ -11,29 +11,46 @@ from concurrent.futures import ProcessPoolExecutor
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import multiprocessing
 
+# HEIC対応
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+
 # --- 外部ツールのパス設定 ---
 AVIFENC_PATH = "avifenc.exe"
 EXIFTOOL_PATH = "exiftool.exe"
 CREATE_NO_WINDOW = 0x08000000 if os.name == 'nt' else 0
 
 def check_external_tools():
-    avif_exists = os.path.exists(AVIFENC_PATH)
-    exif_exists = os.path.exists(EXIFTOOL_PATH)
-    if not avif_exists and not exif_exists:
-        messagebox.showerror("エラー", "avifenc.exeとexiftool.exeが見つかりません。同一フォルダに置いてください。")
+    # 1. 物理的なファイルの存在チェック
+    if not os.path.exists(AVIFENC_PATH):
+        messagebox.showerror("エラー", "avifenc.exeが見つかりません。")
         sys.exit()
-    elif not avif_exists:
-        messagebox.showerror("エラー", "avifenc.exeが見つかりません。同一フォルダに置いてください。")
-        sys.exit()
-    elif not exif_exists:
-        messagebox.showerror("エラー", "exiftool.exeが見つかりません。同一フォルダに置いてください。")
+    if not os.path.exists(EXIFTOOL_PATH):
+        messagebox.showerror("エラー", "exiftool.exeが見つかりません。")
         sys.exit()
 
-try:
-    from pillow_heif import register_heif_opener
-    register_heif_opener()
-except ImportError:
-    pass
+    # 2. ExifToolの動作検証（exiftool_filesフォルダの欠落を検知）
+    try:
+        process = subprocess.Popen(
+            [EXIFTOOL_PATH, "-ver"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            creationflags=CREATE_NO_WINDOW
+        )
+        stdout, stderr = process.communicate()
+
+        if "Can't locate" in stderr or "exiftool_files" in stderr or process.returncode != 0:
+            raise RuntimeError("ExifTool Library Missing")
+
+    except Exception:
+        messagebox.showerror("エラー", 
+            "Exiftool.exeが正しく動作していません。\n\n"
+            "zipファイルに含まれているexiftool_filesフォルダを含む全てのファイルをスマホ写真圧縮くん.exeと同じフォルダに再度展開してから実行しなおしてください。")
+        sys.exit()
 
 def process_one_image(args):
     input_path, output_path, mode, value, max_long_side = args
@@ -53,7 +70,7 @@ def process_one_image(args):
         
         img.save(temp_png, "PNG")
         
-        # avifencの設定
+        # 1. AVIF生成
         cmd = [AVIFENC_PATH, "-s", "7", "-j", "1", "--yuv", "420"]
         if mode == 'size':
             cmd += ["--target-size", str(value), "--min", "0", "--max", "63"]
@@ -61,17 +78,19 @@ def process_one_image(args):
             q_val = int(63 - (value * 0.63))
             cmd += ["--min", str(q_val), "--max", str(q_val)]
         cmd += [temp_png, output_path]
-        
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
         
-        # 変換成功時のみ、厳選したメタデータを移植（Ver 1.77）
+        # 2. メタデータ移植 (1.77安定版準拠)
         if os.path.exists(output_path):
             subprocess.run([
                 EXIFTOOL_PATH, "-overwrite_original",
                 "-all=", 
                 "-TagsFromFile", input_path,
-                "-CommonIFD0", "-ExifIFD:all", "-GPS:all",
-                "--MakerNotes", "--ThumbnailImage", "--PreviewImage",
+                "-CommonIFD0", 
+                "-ExifIFD:all", 
+                "-GPS:all", 
+                "--MakerNotes", 
+                "--ThumbnailImage", "--PreviewImage",
                 "-padding", "0",
                 output_path
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=CREATE_NO_WINDOW)
@@ -88,7 +107,8 @@ class App(TkinterDnD.Tk):
     def __init__(self):
         super().__init__()
         check_external_tools()
-        self.title("スマホ写真圧縮くん (phone2avif) Ver 1.77")
+        
+        self.title("スマホ写真圧縮くん (phone2avif) Ver 1.78D")
         self.geometry("750x940")
         try:
             from ctypes import windll
@@ -105,7 +125,7 @@ class App(TkinterDnD.Tk):
     def _setup_ui(self):
         info_btn = tk.Button(self, text="ℹ アプリについて", command=self.show_license, relief=tk.FLAT, fg="blue")
         info_btn.pack(anchor="e", padx=20, pady=5)
-        tk.Label(self, text="1. 処理対象のフォルダを追加（あらゆる画像形式に対応）:", font=self.title_font).pack(pady=(5, 5), anchor="w", padx=20)
+        tk.Label(self, text="1. 処理対象のフォルダを追加 (JPG, PNG, HEIC等。動画ファイルは無視します):", font=self.title_font).pack(pady=(5, 5), anchor="w", padx=20)
         self.list_frame = tk.Frame(self); self.list_frame.pack(fill=tk.X, padx=20, pady=5)
         self.listbox = tk.Listbox(self.list_frame, height=8, selectmode=tk.EXTENDED, bg="#fcfcfc"); self.listbox.pack(fill=tk.BOTH, expand=True)
         self.guide_label = tk.Label(self.listbox, text="ここに対象となるフォルダをドラッグアンドドロップしてください", bg="#fcfcfc", fg="gray")
@@ -141,26 +161,25 @@ class App(TkinterDnD.Tk):
         tk.Label(cf, text="並列スレッド数:").grid(row=1, column=0, sticky="w", pady=5)
         self.var_threads = tk.StringVar(value=str(max(1, self.max_sys_cpu - 1)))
         tk.Entry(cf, textvariable=self.var_threads, width=10, justify=tk.RIGHT).grid(row=1, column=1, padx=10)
-        tk.Label(cf, text=f"/ システム最大 {self.max_sys_cpu}").grid(row=1, column=2, sticky="w")
         tk.Label(self, text="進捗状況:", font=self.title_font).pack(pady=(20, 5), anchor="w", padx=20)
         self.lbl_counter = tk.Label(self, text="0 / 0 (0%)", font=("Consolas", 12)); self.lbl_counter.pack()
         self.progress = ttk.Progressbar(self, orient="horizontal", mode="determinate"); self.progress.pack(fill=tk.X, padx=20, pady=10)
         self.lbl_status = tk.Label(self, text="待機中...", fg="#555555"); self.lbl_status.pack()
-        self.action_frame = tk.Frame(self); self.action_frame.pack(fill=tk.X, padx=150, pady=20)
-        self.btn_start = tk.Button(self.action_frame, text="一括変換を開始する", command=self.start_thread, bg="#28a745", fg="white", font=self.title_font, height=2)
-        self.btn_start.pack(fill=tk.X)
-        self.btn_stop = tk.Button(self.action_frame, text="変換を中止する", command=self.stop_conversion, bg="#dc3545", fg="white", font=self.title_font, height=2)
+        self.btn_start = tk.Button(self, text="一括変換を開始する", command=self.start_thread, bg="#28a745", fg="white", font=self.title_font, height=2)
+        self.btn_start.pack(fill=tk.X, padx=150, pady=20)
+        self.btn_stop = tk.Button(self, text="変換を中止する", command=self.stop_conversion, bg="#dc3545", fg="white", font=self.title_font, height=2)
 
     def show_license(self):
         license_text = (
-            "スマホ写真圧縮くん (phone2avif) Ver 1.77\n\n"
-            "本アプリはオープンソースとして公開されています。\n"
-            "動作には同一フォルダ内に以下のツールが必要です：\n\n"
+            "スマホ写真圧縮くん Ver 1.78D\n\n"
+            "本アプリは以下のオープンソースソフトウェアを利用しています：\n\n"
             "■ avifenc (libavif)\n"
-            "ライセンス: BSD 2-Clause License\n\n"
-            "■ ExifTool (by Phil Harvey)\n"
-            "ライセンス: Perl Artistic / GPL\n\n"
-            "詳細は配布パッケージ内の各ライセンス記述をご確認ください。"
+            "Copyright 2019 Google LLC\n"
+            "License: BSD 2-Clause License\n\n"
+            "■ ExifTool\n"
+            "Copyright 2003-2024, Phil Harvey\n"
+            "License: Perl Artistic License / GPL\n\n"
+            "詳細なライセンス表示についてはzipファイル同梱のLICENSE_TOOLS.txtにて。"
         )
         messagebox.showinfo("このアプリについて", license_text)
 
@@ -192,6 +211,7 @@ class App(TkinterDnD.Tk):
         if p: self.entry_output.delete(0, tk.END); self.entry_output.insert(0, os.path.normpath(p))
 
     def start_thread(self):
+        # --- 1.66当時のエラーチェック文言へ修正 ---
         has_input = len(self.input_dirs) > 0
         has_output = bool(self.entry_output.get().strip())
         if not has_input and not has_output:
@@ -203,26 +223,22 @@ class App(TkinterDnD.Tk):
         elif not has_output:
             messagebox.showwarning("警告", "保存先フォルダが指定されていません")
             return
+
         self.is_running = True
-        self.btn_start.pack_forget(); self.btn_stop.pack(fill=tk.X)
+        self.btn_start.pack_forget(); self.btn_stop.pack(fill=tk.X, padx=150, pady=20)
         threading.Thread(target=self.run_conversion, daemon=True).start()
 
     def stop_conversion(self):
         if messagebox.askyesno("確認", "中止しますか？"):
             self.is_running = False
-            self.lbl_status.config(text="中止しています...")
             for child in multiprocessing.active_children(): child.terminate()
 
     def run_conversion(self):
         output_base = os.path.normpath(self.entry_output.get())
         mode = self.mode_var.get(); max_side = int(self.var_max_side.get())
-        try: input_threads = int(self.var_threads.get())
-        except: input_threads = self.max_sys_cpu - 1
-        num_threads = min(input_threads, self.max_sys_cpu, 61)
+        num_threads = min(int(self.var_threads.get()), self.max_sys_cpu, 61)
         val = int(self.var_target_size.get()) * 1024 if mode == "size" else int(self.var_quality.get())
         tasks = []
-        self.lbl_status.config(text="ファイルをスキャン中...")
-        self.update_idletasks()
         valid_exts = ('.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.bmp', '.tif', '.tiff', '.ico', '.avif')
         for ib in self.input_dirs:
             fn = os.path.basename(ib)
@@ -236,26 +252,21 @@ class App(TkinterDnD.Tk):
         total = len(tasks)
         if total == 0 or not self.is_running: self.reset_ui(); return
         self.progress["maximum"] = total; count = 0
-        self.lbl_status.config(text=f"変換中... (残り {total} 枚 / {num_threads} スレッド)")
         with ProcessPoolExecutor(max_workers=num_threads) as executor:
             futures = [executor.submit(process_one_image, t) for t in tasks]
             for future in futures:
                 if not self.is_running: break
-                try:
-                    future.result()
-                    count += 1
-                    self.progress["value"] = count
-                    self.lbl_counter.config(text=f"{count} / {total} ({int(count/total*100)}%)")
-                    self.lbl_status.config(text=f"変換中... (残り {total - count} 枚)")
-                    self.update_idletasks()
-                except: pass
+                future.result()
+                count += 1
+                self.progress["value"] = count
+                self.lbl_counter.config(text=f"{count} / {total} ({int(count/total*100)}%)")
+                self.update_idletasks()
         if self.is_running: messagebox.showinfo("完了", f"{count}枚の処理が完了しました！")
         self.reset_ui()
 
     def reset_ui(self):
         self.is_running = False
-        self.btn_stop.pack_forget(); self.btn_start.pack(fill=tk.X)
-        if not self.lbl_status.cget("text") == "完了！": self.lbl_status.config(text="待機中...")
+        self.btn_stop.pack_forget(); self.btn_start.pack(fill=tk.X, padx=150, pady=20)
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

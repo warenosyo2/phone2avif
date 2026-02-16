@@ -1,4 +1,4 @@
-スマホ写真圧縮くん v1.77
+スマホ写真圧縮くん v1.78D
 
 スマホ写真圧縮くんは、スマホ（iPhone/Android）で撮影した大量の写真（JPG, PNG, HEICなど）やPCで撮ったスクショなどを、次世代画像フォーマット AVIF に一括変換・最適化するWindows用ツールです。スマホの写真をGoogle Photosにそのままアップロードしていくと、圧縮モード（容量セーブモード, Storage saver）でも1Mbyteとか結構な容量を食います。たまに5Mbyteとか食っているケースも。本ツールを使えば圧縮効率が高く、画質劣化しにくい最新のAVIFフォーマットでの圧縮・リサイズが可能で、Google Photosの無料容量15Gbyteの範囲で10万枚保存してもスマホ画面で見せるぶんにはいいかんじの画質をキープできます。
 
@@ -23,3 +23,9 @@ Bash pyinstaller --noconsole --onefile --collect-all tkinterdnd2 --collect-all p
 内部で使用している外部ツール:
 
 avifenc (libavif): BSD 2-Clause License ExifTool (by Phil Harvey): Perl Artistic / GPL
+
+
+Release note:
+v1.77 初回リリース
+v1.7D exiftool_filesフォルダが配布zipに含まれておらずEXIF引き継ぎができていなかったので修正、exiftool_files内のファイル不足等でexiftoolがエラーを出したときに警告できるよう修正。
+
